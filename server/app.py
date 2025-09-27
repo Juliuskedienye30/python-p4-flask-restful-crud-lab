@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, send_from_directory
 from flask_migrate import Migrate
 from flask_restful import Api, Resource
+import os
 
 from models import db, Plant
 
@@ -16,20 +17,36 @@ db.init_app(app)
 
 api = Api(app)
 
+# ---------------------------
+# Root route
+# ---------------------------
+@app.route("/")
+def index():
+    return {"message": "Backend is running. Try /plants"}
 
+# ---------------------------
+# Static image route
+# ---------------------------
+@app.route("/images/<path:filename>")
+def serve_image(filename):
+    # looks inside static/images/
+    return send_from_directory(os.path.join(app.root_path, "static/images"), filename)
+
+# ---------------------------
+# /plants collection routes
+# ---------------------------
 class Plants(Resource):
-
     def get(self):
         plants = [plant.to_dict() for plant in Plant.query.all()]
         return make_response(jsonify(plants), 200)
 
     def post(self):
         data = request.get_json()
-
         new_plant = Plant(
             name=data['name'],
             image=data['image'],
             price=data['price'],
+            is_in_stock=data.get('is_in_stock', True),
         )
 
         db.session.add(new_plant)
@@ -40,12 +57,36 @@ class Plants(Resource):
 
 api.add_resource(Plants, '/plants')
 
-
+# ---------------------------
+# /plants/<id> single routes
+# ---------------------------
 class PlantByID(Resource):
-
     def get(self, id):
-        plant = Plant.query.filter_by(id=id).first().to_dict()
-        return make_response(jsonify(plant), 200)
+        plant = Plant.query.get(id)
+        if not plant:
+            return make_response({"error": "Plant not found"}, 404)
+        return make_response(plant.to_dict(), 200)
+
+    def patch(self, id):
+        plant = Plant.query.get(id)
+        if not plant:
+            return make_response({"error": "Plant not found"}, 404)
+
+        data = request.get_json()
+        for attr, value in data.items():
+            setattr(plant, attr, value)
+
+        db.session.commit()
+        return make_response(plant.to_dict(), 200)
+
+    def delete(self, id):
+        plant = Plant.query.get(id)
+        if not plant:
+            return make_response({"error": "Plant not found"}, 404)
+
+        db.session.delete(plant)
+        db.session.commit()
+        return make_response('', 204)
 
 
 api.add_resource(PlantByID, '/plants/<int:id>')
